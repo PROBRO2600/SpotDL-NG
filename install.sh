@@ -30,6 +30,14 @@ INSTALL_DIR="$HOME/.local/share/spotdl-ng"
 echo "Setting up Python virtual environment at $INSTALL_DIR/venv..."
 mkdir -p "$INSTALL_DIR"
 
+# Copy icon.png if it exists in the current directory
+if [ -f "./icon.png" ]; then
+    cp "./icon.png" "$INSTALL_DIR/icon.png"
+    echo "Custom icon.png copied to $INSTALL_DIR/icon.png"
+else
+    echo "Notice: icon.png not found in current directory. Using default app icon."
+fi
+
 python3 -m venv --system-site-packages "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install spotdl
@@ -391,6 +399,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
             return
 
         spotdl_bin = str(Path(__file__).parent / "venv" / "bin" / "spotdl")
+        failed_items = []
 
         for item in items:
             if not self.is_downloading:
@@ -431,14 +440,36 @@ class SpotDLWindow(Adw.ApplicationWindow):
                 
                 if process.returncode != 0 and self.is_downloading:
                     self.log_message(f"Warning: Item finished with errors (code {process.returncode}): {item}")
+                    failed_items.append(item)
 
             except FileNotFoundError:
                 self.log_message("Error: 'spotdl' binary not found in virtual environment.")
+                failed_items.append(item)
                 break
             except Exception as e:
                 self.log_message(f"Subprocess error for '{item}': {e}")
+                failed_items.append(item)
+
+        if failed_items:
+            self.show_failed_dialog(failed_items)
 
         self.reset_ui_safe()
+
+    def show_failed_dialog(self, failed_items):
+        def present_dialog():
+            try:
+                body_text = "The following items failed to download:\n\n" + "\n".join(f"• {item}" for item in failed_items)
+                dialog = Adw.MessageDialog(
+                    transient_for=self,
+                    heading="Some Downloads Failed",
+                    body=body_text
+                )
+                dialog.add_response("ok", "OK")
+                dialog.present()
+            except Exception as e:
+                print(f"Failed dialog error: {e}")
+            return False
+        GLib.idle_add(present_dialog)
 
     def reset_ui_safe(self):
         def update():
@@ -473,10 +504,16 @@ if __name__ == "__main__":
     app.run(None)
 EOF
 
-# 5. Create Desktop Shortcut Entry
+# 5. Create Desktop Shortcut Entry (Using custom or fallback icon)
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 DESKTOP_FILE="$DESKTOP_DIR/spotdl-ng.desktop"
+
+# Check if icon exists in INSTALL_DIR, otherwise fallback to generic audio icon
+ICON_PATH="$INSTALL_DIR/icon.png"
+if [ ! -f "$ICON_PATH" ]; then
+    ICON_PATH="audio-x-generic"
+fi
 
 echo "Creating desktop shortcut at $DESKTOP_FILE..."
 cat << EOF > "$DESKTOP_FILE"
@@ -484,7 +521,7 @@ cat << EOF > "$DESKTOP_FILE"
 Name=SpotDL-NG
 Comment=Music downloader powered by spotdl and GTK4
 Exec=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/spotdl.py
-Icon=audio-x-generic
+Icon=$ICON_PATH
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;
