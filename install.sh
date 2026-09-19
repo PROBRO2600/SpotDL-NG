@@ -49,6 +49,7 @@ from pathlib import Path
 import threading
 import subprocess
 import platform
+import socket
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -58,6 +59,18 @@ from gi.repository import Adw, Gtk, GLib
 
 FORMATS = ["mp3", "flac", "m4a", "opus", "ogg", "wav"]
 BITRATES = ["32k", "64k", "96k", "128k", "192k", "256k", "320k", "auto"]
+
+
+def check_internet_connection(host="8.8.8.8", port=53, timeout=3):
+    """Checks reachability via direct TCP socket connection to avoid HTTP/SSL issues."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((host, port))
+        s.close()
+        return True
+    except OSError:
+        return False
 
 
 class SpotDLWindow(Adw.ApplicationWindow):
@@ -71,22 +84,40 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.download_path = Path.home() / "Music"
         self.is_downloading = False
         self.download_thread = None
+        self.current_process = None
 
         self.build_ui()
+        
+        # Check network connectivity at startup
+        GLib.idle_add(self.check_launch_network)
+
+    def check_launch_network(self):
+        if not check_internet_connection():
+            self.show_network_dialog("Network Unavailable", "No active internet connection was detected on launch. Please check your network settings.")
+
+    def show_network_dialog(self, title, message):
+        def present_dialog():
+            try:
+                dialog = Adw.MessageDialog.new(self, title, message)
+                dialog.add_response("ok", "OK")
+                dialog.connect("response", lambda d, response: d.destroy())
+                dialog.present()
+            except Exception as e:
+                print(f"Network dialog error: {e}")
+            return False
+        GLib.idle_add(present_dialog)
 
     def build_ui(self):
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         header = Adw.HeaderBar()
         
-        # Standard centered title
         header_title = Adw.WindowTitle(
             title="SpotDL-NG",
             subtitle="Music downloader",
         )
         header.set_title_widget(header_title)
 
-        # Pack "Pra" to the top left corner of the header bar
         pra_label = Gtk.Label(label="Pra")
         pra_label.add_css_class("dim-label")
         pra_label.set_margin_start(10)
@@ -226,7 +257,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.status_label.set_margin_top(8)
         content.append(self.status_label)
 
-        # Progress bar setup
         self.overall_progress = Gtk.ProgressBar()
         content.append(self.overall_progress)
 
@@ -368,6 +398,10 @@ class SpotDLWindow(Adw.ApplicationWindow):
         if self.is_downloading:
             return
 
+        if not check_internet_connection():
+            self.show_network_dialog("Network Error", "Cannot start download. Please check your internet connection.")
+            return
+
         items = []
         row = self.queue.get_row_at_index(0)
         idx = 0
@@ -393,7 +427,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(True)
         self.status_label.set_text("Downloading...")
         
-        # Trigger indeterminate pulsing mode safely
         def set_indeterminate():
             self.overall_progress.set_pulse_step(0.05)
             GLib.timeout_add(80, lambda: self.overall_progress.pulse() if self.is_downloading else False)
@@ -420,6 +453,12 @@ class SpotDLWindow(Adw.ApplicationWindow):
             if not self.is_downloading:
                 break
 
+            if not check_internet_connection():
+                self.log_message("Network dropped during download session.")
+                self.show_network_dialog("Network Lost", "Internet connection was lost during processing. The download batch has been stopped.")
+                failed_items.append(item)
+                break
+
             cmd = [
                 spotdl_bin,
                 item,
@@ -435,7 +474,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
             item_failed = False
             try:
-                process = subprocess.Popen(
+                self.current_process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
@@ -443,10 +482,9 @@ class SpotDLWindow(Adw.ApplicationWindow):
                     bufsize=1
                 )
 
-                if process.stdout:
-                    for line in process.stdout:
+                if self.current_process.stdout:
+                    for line in self.current_process.stdout:
                         if not self.is_downloading:
-                            process.terminate()
                             break
                         line_str = line.strip()
                         if line_str:
@@ -454,9 +492,9 @@ class SpotDLWindow(Adw.ApplicationWindow):
                             if "LookupError" in line_str or "No matching song" in line_str:
                                 item_failed = True
 
-                process.wait()
+                self.current_process.wait()
                 
-                if (process.returncode != 0 or item_failed) and self.is_downloading:
+                if (self.current_process.returncode != 0 or item_failed) and self.is_downloading:
                     self.log_message(f"Warning: Item failed/encountered LookupError: {item}")
                     failed_items.append(item)
 
@@ -467,8 +505,10 @@ class SpotDLWindow(Adw.ApplicationWindow):
             except Exception as e:
                 self.log_message(f"Subprocess error for '{item}': {e}")
                 failed_items.append(item)
+            finally:
+                self.current_process = None
 
-        if failed_items:
+        if failed_items and self.is_downloading:
             self.show_failed_dialog(failed_items)
 
         self.reset_ui_safe()
@@ -476,7 +516,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
     def show_failed_dialog(self, failed_items):
         def present_dialog():
             try:
-                body_text = "The following items failed or encountered a LookupError:\n\n" + "\n".join(f"• {item}" for item in failed_items)
+                body_text = "The following items failed or encountered an error:\n\n" + "\n".join(f"• {item}" for item in failed_items)
                 dialog = Adw.MessageDialog.new(
                     self,
                     "Some Downloads Failed",
@@ -503,8 +543,17 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
     def stop_download(self, widget):
         self.is_downloading = False
-        self.status_label.set_text("Completed")
-        self.log_message("Stop requested by user.")
+        self.status_label.set_text("Stopping...")
+        self.log_message("Stop requested by user. Terminating process...")
+        
+        proc = self.current_process
+        if proc:
+            try:
+                proc.terminate()
+                GLib.timeout_add(2000, lambda: proc.kill() if proc.poll() is None else False)
+            except Exception as e:
+                self.log_message(f"Error terminating process: {e}")
+
         self.stop_button.set_sensitive(False)
 
 
