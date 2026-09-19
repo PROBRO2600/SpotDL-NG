@@ -4,8 +4,8 @@ set -e
 
 echo "=== Starting SpotDL-NG All-in-One Installation ==="
 
-# 1. Install System Dependencies
-echo "Installing system dependencies (ffmpeg, python-gobject, gtk4)..."
+# 1. Install System Dependencies & GTK/Adwaita Bindings
+echo "Installing system dependencies and Python GTK bindings..."
 if command -v apt &> /dev/null; then
     sudo apt update
     sudo apt install -y ffmpeg python3-pip python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 curl
@@ -14,7 +14,7 @@ elif command -v dnf &> /dev/null; then
 elif command -v pacman &> /dev/null; then
     sudo pacman -S --noconfirm ffmpeg python-pip python-gobject gtk4 libadwaita curl
 else
-    echo "Warning: Unsupported package manager. Ensure ffmpeg and python-gobject are installed."
+    echo "Warning: Unsupported package manager. Ensure ffmpeg, python-gobject, and gtk4 are installed."
 fi
 
 # 2. Install Deno
@@ -25,8 +25,8 @@ else
     echo "Deno is already installed."
 fi
 
-# 3. Install SpotDL Python package
-echo "Installing spotdl..."
+# 3. Install Python Libraries (spotdl)
+echo "Installing Python libraries via pip..."
 pip install --user --upgrade spotdl
 
 # 4. Create Application Directory & Generate spotdl.py automatically
@@ -493,7 +493,7 @@ if command -v update-desktop-database &> /dev/null; then
     update-desktop-database "$DESKTOP_DIR"
 fi
 
-# 6. Create global terminal shortcut for 'spotdl-ng'
+# 6. Create Global Terminal Command 'spotdl-ng'
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 LAUNCHER="$BIN_DIR/spotdl-ng"
@@ -506,13 +506,12 @@ EOF
 
 chmod +x "$LAUNCHER"
 
-# Ensure ~/.local/bin is in the user's PATH
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
     if [ -f "$HOME/.zshrc" ]; then
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
     fi
-    echo "Added $BIN_DIR to your PATH in shell configuration files."
 fi
 
 echo "=== Installation Completed Successfully! ==="
+echo "You can now run 'spotdl-ng' in your terminal or find it in your app menu."
