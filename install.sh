@@ -86,12 +86,11 @@ class SpotDLWindow(Adw.ApplicationWindow):
         )
         header.set_title_widget(header_title)
 
-        # Explicitly pack version to the top left corner of the header bar
-        version_label = Gtk.Label(label="v0.17")
-        version_label.add_css_class("dim-label")
-        version_label.add_css_class("caption")
-        version_label.set_margin_start(10)
-        header.pack_start(version_label)
+        # Pack "Pra" to the top left corner of the header bar
+        pra_label = Gtk.Label(label="Pra")
+        pra_label.add_css_class("dim-label")
+        pra_label.set_margin_start(10)
+        header.pack_start(pra_label)
 
         root.append(header)
 
@@ -573,5 +572,5 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     fi
 fi
 
-echo "=== Installation Completed Successfully ==="
+echo "=== Installation Completed Successfully! ==="
 echo "You can now run 'spotdl-ng' in your terminal or find it in your app menu."
