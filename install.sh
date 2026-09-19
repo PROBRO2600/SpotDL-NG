@@ -460,11 +460,12 @@ class SpotDLWindow(Adw.ApplicationWindow):
             try:
                 body_text = "The following items failed to download:\n\n" + "\n".join(f"• {item}" for item in failed_items)
                 dialog = Adw.MessageDialog(
-                    transient_for=self,
                     heading="Some Downloads Failed",
                     body=body_text
                 )
+                dialog.set_transient_for(self)
                 dialog.add_response("ok", "OK")
+                dialog.connect("response", lambda d, response: d.destroy())
                 dialog.present()
             except Exception as e:
                 print(f"Failed dialog error: {e}")
