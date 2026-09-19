@@ -4,7 +4,7 @@ set -e
 
 echo "=== Starting SpotDL-NG All-in-One Installation ==="
 
-# 1. Install System Dependencies & GTK/Adwaita Bindings
+# 1. Install System Dependencies & Python GTK Bindings
 echo "Installing system dependencies and Python GTK bindings..."
 if command -v apt &> /dev/null; then
     sudo apt update
