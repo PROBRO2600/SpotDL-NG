@@ -4,18 +4,22 @@ set -e
 
 echo "=== Starting SpotDL-NG All-in-One Installation ==="
 
-# 1. Install System Dependencies & Python GTK Bindings
-echo "Installing system dependencies and Python GTK bindings..."
+# 1. Install System Dependencies, Python GTK Bindings, & pipx
+echo "Installing system dependencies and pipx..."
 if command -v apt &> /dev/null; then
     sudo apt update
-    sudo apt install -y ffmpeg python3-pip python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 curl
+    sudo apt install -y ffmpeg python3-full python3-pip python3-pipx python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 curl
 elif command -v dnf &> /dev/null; then
-    sudo dnf install -y ffmpeg python3-pip python3-gobject gtk4 libadwaita curl
+    sudo dnf install -y ffmpeg python3-pip python3-pipx python3-gobject gtk4 libadwaita curl
 elif command -v pacman &> /dev/null; then
-    sudo pacman -S --noconfirm ffmpeg python-pip python-gobject gtk4 libadwaita curl
+    sudo pacman -S --noconfirm ffmpeg python-pip python-pipx python-gobject gtk4 libadwaita curl
 else
-    echo "Warning: Unsupported package manager. Ensure ffmpeg, python-gobject, and gtk4 are installed."
+    echo "Warning: Unsupported package manager. Ensure ffmpeg, pipx, and python-gobject are installed."
 fi
+
+# Ensure pipx path is registered
+export PATH="$HOME/.local/bin:$PATH"
+pipx ensurepath || true
 
 # 2. Install Deno
 echo "Installing Deno..."
@@ -25,9 +29,13 @@ else
     echo "Deno is already installed."
 fi
 
-# 3. Install Python Libraries (spotdl)
-echo "Installing Python libraries via pip..."
-pip install --user --upgrade spotdl
+# 3. Install spotdl safely via pipx (with fallback to --break-system-packages if needed)
+echo "Installing spotdl safely..."
+if command -v pipx &> /dev/null; then
+    pipx install spotdl --force || pipx upgrade spotdl || true
+else
+    pip3 install --user spotdl --break-system-packages
+fi
 
 # 4. Create Application Directory & Generate spotdl.py automatically
 INSTALL_DIR="$HOME/.local/share/spotdl-ng"
