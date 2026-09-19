@@ -4,22 +4,18 @@ set -e
 
 echo "=== Starting SpotDL-NG All-in-One Installation ==="
 
-# 1. Install System Dependencies, Python GTK Bindings, & pipx
-echo "Installing system dependencies and pipx..."
+# 1. Install System Dependencies & Python GTK Bindings / Venv support
+echo "Installing system dependencies and Python venv..."
 if command -v apt &> /dev/null; then
     sudo apt update
-    sudo apt install -y ffmpeg python3-full python3-pip python3-pipx python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 curl
+    sudo apt install -y ffmpeg python3-full python3-venv python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 curl
 elif command -v dnf &> /dev/null; then
-    sudo dnf install -y ffmpeg python3-pip python3-pipx python3-gobject gtk4 libadwaita curl
+    sudo dnf install -y ffmpeg python3-devel python3-virtualenv gtk4 libadwaita curl
 elif command -v pacman &> /dev/null; then
-    sudo pacman -S --noconfirm ffmpeg python-pip python-pipx python-gobject gtk4 libadwaita curl
+    sudo pacman -S --noconfirm ffmpeg python python-virtualenv python-gobject gtk4 libadwaita curl
 else
-    echo "Warning: Unsupported package manager. Ensure ffmpeg, pipx, and python-gobject are installed."
+    echo "Warning: Unsupported package manager. Ensure ffmpeg, python3-venv, and gtk4 are installed."
 fi
-
-# Ensure pipx path is registered
-export PATH="$HOME/.local/bin:$PATH"
-pipx ensurepath || true
 
 # 2. Install Deno
 echo "Installing Deno..."
@@ -29,19 +25,17 @@ else
     echo "Deno is already installed."
 fi
 
-# 3. Install spotdl safely via pipx (with fallback to --break-system-packages if needed)
-echo "Installing spotdl safely..."
-if command -v pipx &> /dev/null; then
-    pipx install spotdl --force || pipx upgrade spotdl || true
-else
-    pip3 install --user spotdl --break-system-packages
-fi
-
-# 4. Create Application Directory & Generate spotdl.py automatically
+# 3. Create Application Directory & Virtual Environment for Python Libraries
 INSTALL_DIR="$HOME/.local/share/spotdl-ng"
-echo "Creating application files at $INSTALL_DIR..."
+echo "Setting up Python virtual environment at $INSTALL_DIR/venv..."
 mkdir -p "$INSTALL_DIR"
 
+python3 -m venv "$INSTALL_DIR/venv"
+"$INSTALL_DIR/venv/bin/pip" install --upgrade pip
+"$INSTALL_DIR/venv/bin/pip" install spotdl
+
+# 4. Generate spotdl.py automatically
+echo "Creating application script..."
 cat << 'EOF' > "$INSTALL_DIR/spotdl.py"
 from pathlib import Path
 import threading
@@ -396,12 +390,15 @@ class SpotDLWindow(Adw.ApplicationWindow):
             self.reset_ui_safe()
             return
 
+        # Use the virtual environment's spotdl binary path
+        spotdl_bin = str(Path(__file__).parent / "venv" / "bin" / "spotdl")
+
         for item in items:
             if not self.is_downloading:
                 break
 
             cmd = [
-                "spotdl",
+                spotdl_bin,
                 item,
                 "--output", str(self.download_path),
                 "--format", fmt,
@@ -437,7 +434,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
                     self.log_message(f"Warning: Item finished with errors (code {process.returncode}): {item}")
 
             except FileNotFoundError:
-                self.log_message("Error: 'spotdl' tool not found. Please install it via 'pip install spotdl'.")
+                self.log_message("Error: 'spotdl' binary not found in virtual environment.")
                 break
             except Exception as e:
                 self.log_message(f"Subprocess error for '{item}': {e}")
@@ -477,7 +474,7 @@ if __name__ == "__main__":
     app.run(None)
 EOF
 
-# 5. Create Desktop Shortcut Entry
+# 5. Create Desktop Shortcut Entry (Using venv python)
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 DESKTOP_FILE="$DESKTOP_DIR/spotdl-ng.desktop"
@@ -487,7 +484,7 @@ cat << EOF > "$DESKTOP_FILE"
 [Desktop Entry]
 Name=SpotDL-NG
 Comment=Music downloader powered by spotdl and GTK4
-Exec=python3 $INSTALL_DIR/spotdl.py
+Exec=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/spotdl.py
 Icon=audio-x-generic
 Terminal=false
 Type=Application
@@ -509,7 +506,7 @@ LAUNCHER="$BIN_DIR/spotdl-ng"
 echo "Creating global command 'spotdl-ng' at $LAUNCHER..."
 cat << EOF > "$LAUNCHER"
 #!/bin/bash
-python3 "$INSTALL_DIR/spotdl.py" &
+exec "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/spotdl.py" "\$@"
 EOF
 
 chmod +x "$LAUNCHER"
