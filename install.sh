@@ -42,7 +42,7 @@ python3 -m venv --system-site-packages "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install spotdl
 
-# 4. Generate spotdl.py automatically
+# 4. Generate spotdl.py automatically (v0.15)
 echo "Creating application script..."
 cat << 'EOF' > "$INSTALL_DIR/spotdl.py"
 from pathlib import Path
@@ -83,6 +83,14 @@ class SpotDLWindow(Adw.ApplicationWindow):
             subtitle="Music downloader",
         )
         header.set_title_widget(header_title)
+
+        # Add tiny version number to the top right corner
+        version_label = Gtk.Label(label="v0.15")
+        version_label.add_css_class("dim-label")
+        version_label.add_css_class("caption")
+        version_label.set_margin_end(6)
+        header.pack_end(version_label)
+
         root.append(header)
 
         scrolled_window = Gtk.ScrolledWindow()
@@ -217,9 +225,8 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.status_label.set_margin_top(8)
         content.append(self.status_label)
 
-        # Indeterminate progress bar setup
+        # Progress bar setup (defaults to non-pulsing/empty)
         self.overall_progress = Gtk.ProgressBar()
-        self.overall_progress.set_fraction(0.0)
         content.append(self.overall_progress)
 
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -385,12 +392,11 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(True)
         self.status_label.set_text("Downloading...")
         
-        # Make progress bar indeterminate (pulsing)
+        # Trigger indeterminate pulsing mode safely
         def set_indeterminate():
             self.overall_progress.set_pulse_step(0.05)
-            self.overall_progress.set_fraction(0.0)
-            # Pulse periodically via GLib timeout
-            self.pulse_timeout_id = GLib.timeout_add(100, lambda: self.overall_progress.pulse() if self.is_downloading else False)
+            # Continuously pulse without setting fraction (which forces determinate mode)
+            GLib.timeout_add(80, lambda: self.overall_progress.pulse() if self.is_downloading else False)
         GLib.idle_add(set_indeterminate)
 
         self.download_thread = threading.Thread(target=self.run_spotdl_process, args=(items,))
@@ -445,7 +451,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
                         line_str = line.strip()
                         if line_str:
                             self.log_message(line_str)
-                            # Catch Lookups or errors directly from output stream
                             if "LookupError" in line_str or "No matching song" in line_str:
                                 item_failed = True
 
@@ -518,7 +523,7 @@ if __name__ == "__main__":
     app.run(None)
 EOF
 
-# 5. Create Desktop Shortcut Entry (Using custom or fallback icon)
+# 5. Create Desktop Shortcut Entry
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 DESKTOP_FILE="$DESKTOP_DIR/spotdl-ng.desktop"
@@ -567,5 +572,5 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     fi
 fi
 
-echo "=== Installation Completed Successfully! ==="
+echo "=== Installation Completed Successfully (v0.15)! ==="
 echo "You can now run 'spotdl-ng' in your terminal or find it in your app menu."
