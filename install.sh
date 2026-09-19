@@ -25,12 +25,12 @@ else
     echo "Deno is already installed."
 fi
 
-# 3. Create Application Directory & Virtual Environment for Python Libraries
+# 3. Create Application Directory & Virtual Environment (with system-site-packages enabled)
 INSTALL_DIR="$HOME/.local/share/spotdl-ng"
 echo "Setting up Python virtual environment at $INSTALL_DIR/venv..."
 mkdir -p "$INSTALL_DIR"
 
-python3 -m venv "$INSTALL_DIR/venv"
+python3 -m venv --system-site-packages "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install spotdl
 
@@ -390,7 +390,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
             self.reset_ui_safe()
             return
 
-        # Use the virtual environment's spotdl binary path
         spotdl_bin = str(Path(__file__).parent / "venv" / "bin" / "spotdl")
 
         for item in items:
@@ -474,7 +473,7 @@ if __name__ == "__main__":
     app.run(None)
 EOF
 
-# 5. Create Desktop Shortcut Entry (Using venv python)
+# 5. Create Desktop Shortcut Entry
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 DESKTOP_FILE="$DESKTOP_DIR/spotdl-ng.desktop"
