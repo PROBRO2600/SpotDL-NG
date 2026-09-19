@@ -42,7 +42,7 @@ python3 -m venv --system-site-packages "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install spotdl
 
-# 4. Generate spotdl.py automatically (v0.15)
+# 4. Generate spotdl.py automatically (v0.16)
 echo "Creating application script..."
 cat << 'EOF' > "$INSTALL_DIR/spotdl.py"
 from pathlib import Path
@@ -78,18 +78,13 @@ class SpotDLWindow(Adw.ApplicationWindow):
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         header = Adw.HeaderBar()
+        
+        # Window title setup with v0.16 subtitle on the top left
         header_title = Adw.WindowTitle(
             title="SpotDL-NG",
-            subtitle="Music downloader",
+            subtitle="v0.16 - Music downloader",
         )
         header.set_title_widget(header_title)
-
-        # Add tiny version number to the top right corner
-        version_label = Gtk.Label(label="v0.15")
-        version_label.add_css_class("dim-label")
-        version_label.add_css_class("caption")
-        version_label.set_margin_end(6)
-        header.pack_end(version_label)
 
         root.append(header)
 
@@ -225,7 +220,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.status_label.set_margin_top(8)
         content.append(self.status_label)
 
-        # Progress bar setup (defaults to non-pulsing/empty)
+        # Progress bar setup
         self.overall_progress = Gtk.ProgressBar()
         content.append(self.overall_progress)
 
@@ -395,7 +390,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         # Trigger indeterminate pulsing mode safely
         def set_indeterminate():
             self.overall_progress.set_pulse_step(0.05)
-            # Continuously pulse without setting fraction (which forces determinate mode)
             GLib.timeout_add(80, lambda: self.overall_progress.pulse() if self.is_downloading else False)
         GLib.idle_add(set_indeterminate)
 
@@ -572,5 +566,5 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     fi
 fi
 
-echo "=== Installation Completed Successfully (v0.15)! ==="
+echo "=== Installation Completed Successfully (v0.16)! ==="
 echo "You can now run 'spotdl-ng' in your terminal or find it in your app menu."
