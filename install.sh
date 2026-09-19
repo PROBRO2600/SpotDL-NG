@@ -42,7 +42,7 @@ python3 -m venv --system-site-packages "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install spotdl
 
-# 4. Generate spotdl.py automatically (v0.16)
+# 4. Generate spotdl.py automatically
 echo "Creating application script..."
 cat << 'EOF' > "$INSTALL_DIR/spotdl.py"
 from pathlib import Path
@@ -86,8 +86,8 @@ class SpotDLWindow(Adw.ApplicationWindow):
         )
         header.set_title_widget(header_title)
 
-        # Explicitly pack version v0.16 to the top left corner of the header bar
-        version_label = Gtk.Label(label="v0.16")
+        # Explicitly pack version to the top left corner of the header bar
+        version_label = Gtk.Label(label="v0.17")
         version_label.add_css_class("dim-label")
         version_label.add_css_class("caption")
         version_label.set_margin_start(10)
@@ -573,5 +573,5 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     fi
 fi
 
-echo "=== Installation Completed Successfully (v0.16) ==="
+echo "=== Installation Completed Successfully ==="
 echo "You can now run 'spotdl-ng' in your terminal or find it in your app menu."
