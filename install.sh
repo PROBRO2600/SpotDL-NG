@@ -79,12 +79,19 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
         header = Adw.HeaderBar()
         
-        # Window title setup with v0.16 subtitle on the top left
+        # Standard centered title
         header_title = Adw.WindowTitle(
             title="SpotDL-NG",
-            subtitle="v0.16 - Music downloader",
+            subtitle="Music downloader",
         )
         header.set_title_widget(header_title)
+
+        # Explicitly pack version v0.16 to the top left corner of the header bar
+        version_label = Gtk.Label(label="v0.16")
+        version_label.add_css_class("dim-label")
+        version_label.add_css_class("caption")
+        version_label.set_margin_start(10)
+        header.pack_start(version_label)
 
         root.append(header)
 
@@ -566,5 +573,5 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     fi
 fi
 
-echo "=== Installation Completed Successfully (v0.16)! ==="
+echo "=== Installation Completed Successfully (v0.16) ==="
 echo "You can now run 'spotdl-ng' in your terminal or find it in your app menu."
