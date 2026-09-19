@@ -217,8 +217,9 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.status_label.set_margin_top(8)
         content.append(self.status_label)
 
+        # Indeterminate progress bar setup
         self.overall_progress = Gtk.ProgressBar()
-        self.overall_progress.set_fraction(0)
+        self.overall_progress.set_fraction(0.0)
         content.append(self.overall_progress)
 
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -382,7 +383,15 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.is_downloading = True
         self.download_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
-        self.status_label.set_text("Processing query...")
+        self.status_label.set_text("Downloading...")
+        
+        # Make progress bar indeterminate (pulsing)
+        def set_indeterminate():
+            self.overall_progress.set_pulse_step(0.05)
+            self.overall_progress.set_fraction(0.0)
+            # Pulse periodically via GLib timeout
+            self.pulse_timeout_id = GLib.timeout_add(100, lambda: self.overall_progress.pulse() if self.is_downloading else False)
+        GLib.idle_add(set_indeterminate)
 
         self.download_thread = threading.Thread(target=self.run_spotdl_process, args=(items,))
         self.download_thread.start()
@@ -418,6 +427,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
             self.log_message(f"Running command: {' '.join(cmd)}")
 
+            item_failed = False
             try:
                 process = subprocess.Popen(
                     cmd,
@@ -435,11 +445,14 @@ class SpotDLWindow(Adw.ApplicationWindow):
                         line_str = line.strip()
                         if line_str:
                             self.log_message(line_str)
+                            # Catch Lookups or errors directly from output stream
+                            if "LookupError" in line_str or "No matching song" in line_str:
+                                item_failed = True
 
                 process.wait()
                 
-                if process.returncode != 0 and self.is_downloading:
-                    self.log_message(f"Warning: Item finished with errors (code {process.returncode}): {item}")
+                if (process.returncode != 0 or item_failed) and self.is_downloading:
+                    self.log_message(f"Warning: Item failed/encountered LookupError: {item}")
                     failed_items.append(item)
 
             except FileNotFoundError:
@@ -458,8 +471,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
     def show_failed_dialog(self, failed_items):
         def present_dialog():
             try:
-                body_text = "The following items failed to download:\n\n" + "\n".join(f"• {item}" for item in failed_items)
-                # Use Adw.MessageDialog.new factory method properly
+                body_text = "The following items failed or encountered a LookupError:\n\n" + "\n".join(f"• {item}" for item in failed_items)
                 dialog = Adw.MessageDialog.new(
                     self,
                     "Some Downloads Failed",
@@ -511,7 +523,6 @@ DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 DESKTOP_FILE="$DESKTOP_DIR/spotdl-ng.desktop"
 
-# Check if icon exists in INSTALL_DIR, otherwise fallback to generic audio icon
 ICON_PATH="$INSTALL_DIR/icon.png"
 if [ ! -f "$ICON_PATH" ]; then
     ICON_PATH="audio-x-generic"
