@@ -111,6 +111,22 @@ class SpotDLWindow(Adw.ApplicationWindow):
             return False
         GLib.idle_add(present_dialog)
 
+    def show_empty_queue_dialog(self):
+        def present_dialog():
+            try:
+                dialog = Adw.MessageDialog.new(
+                    self,
+                    "Queue is empty",
+                    "Queue is empty. Add links or search queries first!"
+                )
+                dialog.add_response("ok", "OK")
+                dialog.connect("response", lambda d, response: d.destroy())
+                dialog.present()
+            except Exception as e:
+                print(f"Empty queue dialog error: {e}")
+            return False
+        GLib.idle_add(present_dialog)
+
     def build_ui(self):
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
@@ -446,10 +462,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         if self.is_downloading:
             return
 
-        if not check_internet_connection():
-            self.show_network_dialog("Network Error", "Cannot start download. Please check your internet connection.")
-            return
-
         items = []
         row = self.queue.get_row_at_index(0)
         idx = 0
@@ -462,6 +474,11 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
         if not items:
             self.log_message("Queue is empty. Add links or search queries first.")
+            self.show_empty_queue_dialog()
+            return
+
+        if not check_internet_connection():
+            self.show_network_dialog("Network Error", "Cannot start download. Please check your internet connection.")
             return
 
         try:
@@ -518,6 +535,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
             cmd = [
                 spotdl_bin,
+                "download",
                 item,
                 "--output", str(self.download_path),
                 "--format", fmt,
@@ -526,9 +544,9 @@ class SpotDLWindow(Adw.ApplicationWindow):
             ]
 
             if selected_audio:
-                cmd.extend(["--audio-providers"] + selected_audio)
+                cmd.extend(["--audio"] + selected_audio)
             if selected_lyrics:
-                cmd.extend(["--lyrics-providers"] + selected_lyrics)
+                cmd.extend(["--lyrics"] + selected_lyrics)
 
             if download_lyrics:
                 cmd.append("--lyrics")
