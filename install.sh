@@ -84,6 +84,9 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.set_title("SpotDL-NG")
         self.set_default_size(520, 750)
 
+        # Connect window close signal to clean up active subprocesses
+        self.connect("close-request", self.on_close_request)
+
         self.download_path = Path.home() / "Music"
         self.is_downloading = False
         self.download_thread = None
@@ -94,6 +97,24 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
         self.build_ui()
         GLib.idle_add(self.check_launch_network)
+
+    def on_close_request(self, window):
+        if self.is_downloading:
+            self.is_downloading = False
+            self.log_message("Window closing. Terminating active downloads...")
+            
+            proc = self.current_process
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                except Exception as e:
+                    print(f"Error terminating process on exit: {e}")
+
+        return False
 
     def check_launch_network(self):
         if not check_internet_connection():
@@ -242,7 +263,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.bitrate_row = bitrate_row
         settings.add(bitrate_row)
 
-        # Audio Providers Dropdown Expander (Above Threads)
         audio_expander = Adw.ExpanderRow()
         audio_expander.set_title("Audio Providers")
 
@@ -274,7 +294,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.lrc_row = lrc_row
         settings.add(lrc_row)
 
-        # Lyrics Providers Dropdown Expander (Below Generate Lyric Files)
         lyrics_expander = Adw.ExpanderRow()
         lyrics_expander.set_title("Lyrics Providers")
 
