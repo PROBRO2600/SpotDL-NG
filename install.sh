@@ -84,7 +84,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         super().__init__(*args, **kwargs)
 
         self.set_title("SpotDL-NG")
-        self.set_default_size(520, 750)
+        self.set_default_size(520, 800)
 
         self.connect("close-request", self.on_close_request)
 
@@ -270,8 +270,11 @@ class SpotDLWindow(Adw.ApplicationWindow):
         for provider in AUDIO_PROVIDERS:
             row = Adw.SwitchRow()
             row.set_title(provider)
+            # Only youtube-music is checked by default on startup
             if provider == "youtube-music":
                 row.set_active(True)
+            else:
+                row.set_active(False)
             self.audio_provider_switches[provider] = row
             audio_expander.add_row(row)
 
@@ -315,6 +318,30 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.overwrite_row = overwrite_row
         settings.add(overwrite_row)
 
+        # --- Miscellaneous Dropdown Menu ---
+        misc_expander = Adw.ExpanderRow()
+        misc_expander.set_title("Miscellaneous")
+        misc_expander.set_subtitle("")
+
+        # 1. Upgrade SpotDL Row
+        upgrade_row = Adw.ActionRow()
+        upgrade_row.set_title("Upgrade SpotDL")
+        upgrade_btn = Gtk.Button(label="Upgrade")
+        upgrade_btn.set_valign(Gtk.Align.CENTER)
+        upgrade_btn.connect("clicked", self.on_upgrade_spotdl)
+        upgrade_row.add_suffix(upgrade_btn)
+        misc_expander.add_row(upgrade_row)
+
+        # 2. Install FFmpeg Row
+        ffmpeg_row = Adw.ActionRow()
+        ffmpeg_row.set_title("Install FFmpeg")
+        ffmpeg_btn = Gtk.Button(label="Install")
+        ffmpeg_btn.set_valign(Gtk.Align.CENTER)
+        ffmpeg_btn.connect("clicked", self.on_install_ffmpeg)
+        ffmpeg_row.add_suffix(ffmpeg_btn)
+        misc_expander.add_row(ffmpeg_row)
+
+        settings.add(misc_expander)
         content.append(settings)
 
         self.status_label = Gtk.Label(label="Completed", xalign=0)
@@ -383,6 +410,56 @@ class SpotDLWindow(Adw.ApplicationWindow):
         root.append(scrolled_window)
         self.set_content(root)
 
+    def show_popup_dialog(self, title, message):
+        def present():
+            try:
+                dialog = Adw.MessageDialog.new(self, title, message)
+                dialog.add_response("ok", "OK")
+                dialog.connect("response", lambda d, response: d.destroy())
+                dialog.present()
+            except Exception as e:
+                print(f"Popup dialog error: {e}")
+            return False
+        GLib.idle_add(present)
+
+    def on_upgrade_spotdl(self, widget):
+        self.log_message("Starting spotdl upgrade inside venv...")
+        pip_path = str(Path(__file__).parent / "venv" / "bin" / "pip")
+        
+        def run_upgrade():
+            try:
+                proc = subprocess.run([pip_path, "install", "--upgrade", "spotdl"], capture_output=True, text=True)
+                if proc.returncode == 0:
+                    self.log_message("Successfully upgraded spotdl!")
+                    self.show_popup_dialog("Success", "Spotdl updated!")
+                else:
+                    self.log_message(f"Upgrade failed: {proc.stderr.strip()}")
+            except Exception as e:
+                self.log_message(f"Error upgrading spotdl: {e}")
+
+        threading.Thread(target=run_upgrade, daemon=True).start()
+
+    def on_install_ffmpeg(self, widget):
+        self.log_message("Checking FFmpeg availability...")
+        
+        def run_ffmpeg_check():
+            if subprocess.run(["which", "ffmpeg"], capture_output=True).returncode == 0:
+                self.log_message("FFmpeg is already installed and accessible on system PATH.")
+                self.show_popup_dialog("FFmpeg Status", "FFmpeg already installed")
+                return
+
+            self.log_message("System ffmpeg not found. Attempting local venv installation helper...")
+            pip_path = str(Path(__file__).parent / "venv" / "bin" / "pip")
+            
+            proc = subprocess.run([pip_path, "install", "--upgrade", "imageio-ffmpeg"], capture_output=True, text=True)
+            if proc.returncode == 0:
+                self.log_message("Successfully installed local helper ffmpeg binaries via pip.")
+                self.show_popup_dialog("FFmpeg Status", "FFmpeg helper installed via pip!")
+            else:
+                self.log_message(f"Could not automatically install ffmpeg: {proc.stderr.strip()}")
+
+        threading.Thread(target=run_ffmpeg_check, daemon=True).start()
+
     def get_selected_providers(self, provider_dict):
         return [name for name, switch in provider_dict.items() if switch.get_active()]
 
@@ -422,12 +499,10 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
     def add_item_to_queue(self, text):
         row = Gtk.ListBoxRow()
-        
-        # Using an Entry instead of a Label so it's editable inline
         entry = Gtk.Entry()
         entry.set_text(text)
         entry.set_hexpand(True)
-        entry.add_css_class("flat") # Removes the background/border to look clean in the list
+        entry.add_css_class("flat")
         entry.set_margin_start(12)
         entry.set_margin_end(12)
         entry.set_margin_top(8)
@@ -467,7 +542,11 @@ class SpotDLWindow(Adw.ApplicationWindow):
                         self.add_item_to_queue(line)
                         count += 1
                         
-                self.log_message(f"Loaded {count} items from {path}")
+                # Automatically check all audio providers when loading a failed file
+                for provider, switch in self.audio_provider_switches.items():
+                    switch.set_active(True)
+
+                self.log_message(f"Loaded {count} items from {path} and enabled all audio providers.")
         except Exception as e:
             self.log_message(f"File selection/reading error: {e}")
 
@@ -475,7 +554,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         selected_row = self.queue.get_selected_row()
         if selected_row:
             child = selected_row.get_child()
-            # Because it's an Entry now, we use get_text() instead of get_label()
             text = child.get_text() if isinstance(child, Gtk.Entry) else "Item"
             self.queue.remove(selected_row)
             self.log_message(f"Removed from queue: {text}")
@@ -516,7 +594,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
             if row is None:
                 break
             child = row.get_child()
-            # Read from the editable entry
             if child and isinstance(child, Gtk.Entry):
                 item_text = child.get_text().strip()
                 if item_text:
@@ -574,109 +651,107 @@ class SpotDLWindow(Adw.ApplicationWindow):
         spotdl_bin = str(Path(__file__).parent / "venv" / "bin" / "spotdl")
         failed_songs = []
 
-        for item in items:
-            if not self.is_downloading:
-                break
+        try:
+            for item in items:
+                if not self.is_downloading:
+                    break
 
-            if not check_internet_connection():
-                self.log_message("Network dropped during download session.")
-                self.show_network_dialog("Network Lost", "Internet connection was lost. Batch stopped.")
-                failed_songs.append(f"Network error while processing: {item}")
-                break
+                if not check_internet_connection():
+                    self.log_message("Network dropped during download session.")
+                    self.show_network_dialog("Network Lost", "Internet connection was lost. Batch stopped.")
+                    failed_songs.append(f"Network error while processing: {item}")
+                    break
 
-            cmd = [
-                spotdl_bin,
-                "download",
-                item,
-                "--output", str(self.download_path),
-                "--format", config["fmt"],
-                "--bitrate", config["bitrate"],
-                "--threads", str(config["threads"]),
-            ]
+                cmd = [
+                    spotdl_bin,
+                    "download",
+                    item,
+                    "--output", str(self.download_path),
+                    "--format", config["fmt"],
+                    "--bitrate", config["bitrate"],
+                    "--threads", str(config["threads"]),
+                ]
 
-            if config["audio_providers"]:
-                cmd.extend(["--audio"] + config["audio_providers"])
+                if config["audio_providers"]:
+                    cmd.extend(["--audio"] + config["audio_providers"])
 
-            if config["lyrics_providers"]:
-                cmd.extend(["--lyrics"] + config["lyrics_providers"])
+                if config["lyrics_providers"]:
+                    cmd.extend(["--lyrics"] + config["lyrics_providers"])
 
-            if config["generate_lrc"]:
-                cmd.append("--generate-lrc")
+                if config["generate_lrc"]:
+                    cmd.append("--generate-lrc")
 
-            self.log_message(f"Running command: {' '.join(cmd)}")
+                self.log_message(f"Running command: {' '.join(cmd)}")
 
-            try:
-                kwargs = {
-                    "stdout": subprocess.PIPE,
-                    "stderr": subprocess.STDOUT,
-                    "text": True,
-                    "bufsize": 1,
-                }
-                if platform.system() != "Windows":
-                    kwargs["start_new_session"] = True
+                try:
+                    kwargs = {
+                        "stdout": subprocess.PIPE,
+                        "stderr": subprocess.STDOUT,
+                        "text": True,
+                        "bufsize": 1,
+                    }
+                    if platform.system() != "Windows":
+                        kwargs["start_new_session"] = True
 
-                self.current_process = subprocess.Popen(cmd, **kwargs)
+                    self.current_process = subprocess.Popen(cmd, **kwargs)
 
-                if self.current_process.stdout:
-                    for line in self.current_process.stdout:
-                        if not self.is_downloading:
-                            break
-                        line_str = line.strip()
-                        if line_str:
-                            self.log_message(line_str)
-                            
-                            # Catch LookupError track names directly from output
-                            lookup_match = re.search(r"LookupError:\s*No results found for song:\s*(.+)", line_str, re.IGNORECASE)
-                            if lookup_match:
-                                song_title = lookup_match.group(1).strip()
-                                if song_title not in failed_songs:
-                                    failed_songs.append(song_title)
+                    if self.current_process.stdout:
+                        for line in self.current_process.stdout:
+                            if not self.is_downloading:
+                                break
+                            line_str = line.strip()
+                            if line_str:
+                                self.log_message(line_str)
+                                
+                                lookup_match = re.search(r"LookupError:\s*No results found for song:\s*(.+)", line_str, re.IGNORECASE)
+                                if lookup_match:
+                                    song_title = lookup_match.group(1).strip()
+                                    if song_title not in failed_songs:
+                                        failed_songs.append(song_title)
 
-                            # Catch AudioProviderError / YT-DLP download errors directly
-                            dl_error_match = re.search(r"AudioProviderError:\s*YT-DLP download error\s*-\s*(.+)", line_str, re.IGNORECASE)
-                            if dl_error_match:
-                                song_err = dl_error_match.group(1).strip()
-                                if song_err not in failed_songs:
-                                    failed_songs.append(f"YT-DLP Error: {song_err}")
+                                dl_error_match = re.search(r"AudioProviderError:\s*YT-DLP download error\s*-\s*(.+)", line_str, re.IGNORECASE)
+                                if dl_error_match:
+                                    song_err = dl_error_match.group(1).strip()
+                                    if song_err not in failed_songs:
+                                        failed_songs.append(f"YT-DLP Error: {song_err}")
 
-                self.current_process.wait()
+                    self.current_process.wait()
 
-                if self.current_process.returncode != 0 and self.is_downloading:
-                    if not failed_songs:
-                        failed_songs.append(item)
+                    if self.current_process.returncode != 0 and self.is_downloading:
+                        if not failed_songs:
+                            failed_songs.append(item)
 
-            except FileNotFoundError:
-                self.log_message("Error: 'spotdl' binary not found in virtual environment.")
-                failed_songs.append(item)
-                break
-            except Exception as e:
-                self.log_message(f"Subprocess error for '{item}': {e}")
-                failed_songs.append(item)
-            finally:
-                self.current_process = None
+                except FileNotFoundError:
+                    self.log_message("Error: 'spotdl' binary not found in virtual environment.")
+                    failed_songs.append(item)
+                    break
+                except Exception as e:
+                    self.log_message(f"Subprocess error for '{item}': {e}")
+                    failed_songs.append(item)
+                finally:
+                    self.current_process = None
 
-        if failed_songs and self.is_downloading:
-            
-            # Smart Auto-Incrementing logic
-            base_name = "failed_downloads"
-            ext = ".txt"
-            failed_file_path = self.download_path / f"{base_name}{ext}"
-            
-            counter = 1
-            while failed_file_path.exists():
-                failed_file_path = self.download_path / f"{base_name} ({counter}){ext}"
-                counter += 1
+            if failed_songs and self.is_downloading:
+                base_name = "failed_downloads"
+                ext = ".txt"
+                failed_file_path = self.download_path / f"{base_name}{ext}"
+                
+                counter = 1
+                while failed_file_path.exists():
+                    failed_file_path = self.download_path / f"{base_name} ({counter}){ext}"
+                    counter += 1
 
-            try:
-                with open(failed_file_path, "w", encoding="utf-8") as f:
-                    f.write("\n".join(failed_songs) + "\n")
-                self.log_message(f"Saved failed songs list to {failed_file_path}")
-            except Exception as e:
-                self.log_message(f"Failed to write log file: {e}")
+                try:
+                    with open(failed_file_path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(failed_songs) + "\n")
+                    self.log_message(f"Saved failed songs list to {failed_file_path}")
+                except Exception as e:
+                    self.log_message(f"Failed to write log file: {e}")
 
-            self.show_failed_dialog(failed_songs)
-
-        self.reset_ui_safe()
+                self.show_failed_dialog(failed_songs)
+        finally:
+            # Guarantees the UI resets properly even if stopped abruptly
+            self.reset_ui_safe()
 
     def show_failed_dialog(self, failed_items):
         def present_dialog():
@@ -698,7 +773,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
             self.stop_button.set_sensitive(False)
             self.status_label.set_text("Completed")
             self.overall_progress.set_fraction(1.0)
-            self.log_message("Download queue processing completed.")
+            self.log_message("Download queue session finished.")
             return False
         GLib.idle_add(update)
 
