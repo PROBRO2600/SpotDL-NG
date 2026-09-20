@@ -50,6 +50,7 @@ import subprocess
 import platform
 import socket
 import signal
+import re
 import os
 import gi
 
@@ -529,7 +530,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
     def run_spotdl_process(self, items, config):
         spotdl_bin = str(Path(__file__).parent / "venv" / "bin" / "spotdl")
-        failed_items = []
+        failed_songs = []
 
         for item in items:
             if not self.is_downloading:
@@ -538,7 +539,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
             if not check_internet_connection():
                 self.log_message("Network dropped during download session.")
                 self.show_network_dialog("Network Lost", "Internet connection was lost. Batch stopped.")
-                failed_items.append(item)
+                failed_songs.append(f"Network error while processing: {item}")
                 break
 
             cmd = [
@@ -562,7 +563,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
             self.log_message(f"Running command: {' '.join(cmd)}")
 
-            item_failed = False
             try:
                 kwargs = {
                     "stdout": subprocess.PIPE,
@@ -582,35 +582,47 @@ class SpotDLWindow(Adw.ApplicationWindow):
                         line_str = line.strip()
                         if line_str:
                             self.log_message(line_str)
-                            if "LookupError" in line_str or "No matching song" in line_str:
-                                item_failed = True
+                            
+                            # Catch LookupError track names directly from output
+                            lookup_match = re.search(r"LookupError:\s*No results found for song:\s*(.+)", line_str, re.IGNORECASE)
+                            if lookup_match:
+                                song_title = lookup_match.group(1).strip()
+                                if song_title not in failed_songs:
+                                    failed_songs.append(song_title)
+
+                            # Catch AudioProviderError / YT-DLP download errors directly
+                            dl_error_match = re.search(r"AudioProviderError:\s*YT-DLP download error\s*-\s*(.+)", line_str, re.IGNORECASE)
+                            if dl_error_match:
+                                song_err = dl_error_match.group(1).strip()
+                                if song_err not in failed_songs:
+                                    failed_songs.append(f"YT-DLP Error: {song_err}")
 
                 self.current_process.wait()
 
-                if (self.current_process.returncode != 0 or item_failed) and self.is_downloading:
-                    self.log_message(f"Warning: Item failed/encountered LookupError: {item}")
-                    failed_items.append(item)
+                if self.current_process.returncode != 0 and self.is_downloading:
+                    if not failed_songs:
+                        failed_songs.append(item)
 
             except FileNotFoundError:
                 self.log_message("Error: 'spotdl' binary not found in virtual environment.")
-                failed_items.append(item)
+                failed_songs.append(item)
                 break
             except Exception as e:
                 self.log_message(f"Subprocess error for '{item}': {e}")
-                failed_items.append(item)
+                failed_songs.append(item)
             finally:
                 self.current_process = None
 
-        if failed_items and self.is_downloading:
+        if failed_songs and self.is_downloading:
             failed_file_path = self.download_path / "failed_downloads.txt"
             try:
                 with open(failed_file_path, "w", encoding="utf-8") as f:
-                    f.write("\n".join(failed_items) + "\n")
-                self.log_message(f"Saved failed downloads list to {failed_file_path}")
+                    f.write("\n".join(failed_songs) + "\n")
+                self.log_message(f"Saved failed songs list to {failed_file_path}")
             except Exception as e:
                 self.log_message(f"Failed to write log file: {e}")
 
-            self.show_failed_dialog(failed_items)
+            self.show_failed_dialog(failed_songs)
 
         self.reset_ui_safe()
 
