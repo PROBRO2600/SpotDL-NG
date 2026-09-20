@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status
 set -e
 
-echo "=== Starting SpotDL-NG Uninstallation ==="
+echo "=== Removing SpotDL-NG ==="
 
 INSTALL_DIR="$HOME/.local/share/spotdl-ng"
 DESKTOP_FILE="$HOME/.local/share/applications/spotdl-ng.desktop"
+LAUNCHER="$HOME/.local/bin/spotdl-ng"
 
-# 1. Remove application directory
+# 1. Remove application directory and virtual environment
 if [ -d "$INSTALL_DIR" ]; then
-    echo "Removing application directory at $INSTALL_DIR..."
+    echo "Removing application files from $INSTALL_DIR..."
     rm -rf "$INSTALL_DIR"
 else
     echo "Application directory not found."
@@ -18,26 +18,21 @@ fi
 
 # 2. Remove desktop shortcut
 if [ -f "$DESKTOP_FILE" ]; then
-    echo "Removing desktop shortcut at $DESKTOP_FILE..."
+    echo "Removing desktop shortcut..."
     rm -f "$DESKTOP_FILE"
+    if command -v update-desktop-database &> /dev/null; then
+        update-desktop-database "$HOME/.local/share/applications"
+    fi
 else
     echo "Desktop shortcut not found."
 fi
 
-# 3. Update desktop database if available
-if command -v update-desktop-database &> /dev/null; then
-    echo "Updating desktop database..."
-    update-desktop-database "$HOME/.local/share/applications"
-fi
-
-# 4. Uninstall spotdl Python package
-echo "Uninstalling spotdl..."
-if command -v pip &> /dev/null; then
-    pip uninstall -y spotdl || true
-elif command -v pip3 &> /dev/null; then
-    pip3 uninstall -y spotdl || true
+# 3. Remove global terminal command
+if [ -f "$LAUNCHER" ]; then
+    echo "Removing terminal executable from $LAUNCHER..."
+    rm -f "$LAUNCHER"
 else
-    echo "Pip not found, skipping python package removal."
+    echo "Terminal command not found."
 fi
 
-echo "=== Uninstallation Completed Successfully! ==="
+echo "=== Uninstall Completed Successfully! ==="
