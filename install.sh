@@ -193,12 +193,12 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.url_entry = Gtk.Entry()
         self.url_entry.set_hexpand(True)
         self.url_entry.set_placeholder_text("Spotify URL or search query")
-        self.url_entry.connect("activate", self.add_item)
+        self.url_entry.connect("activate", self.add_item_from_input)
         input_box.append(self.url_entry)
 
         add_button = Gtk.Button(label="Add")
         add_button.add_css_class("suggested-action")
-        add_button.connect("clicked", self.add_item)
+        add_button.connect("clicked", self.add_item_from_input)
         input_box.append(add_button)
 
         content.append(input_box)
@@ -231,6 +231,10 @@ class SpotDLWindow(Adw.ApplicationWindow):
         clear_button = Gtk.Button(label="Clear")
         clear_button.connect("clicked", self.clear_queue)
         queue_controls.append(clear_button)
+        
+        load_file_button = Gtk.Button(label="Load File")
+        load_file_button.connect("clicked", self.load_failed_file)
+        queue_controls.append(load_file_button)
 
         content.append(queue_controls)
 
@@ -416,28 +420,63 @@ class SpotDLWindow(Adw.ApplicationWindow):
         except Exception as e:
             self.log_message(f"Failed to open directory: {e}")
 
-    def add_item(self, widget):
+    def add_item_to_queue(self, text):
+        row = Gtk.ListBoxRow()
+        
+        # Using an Entry instead of a Label so it's editable inline
+        entry = Gtk.Entry()
+        entry.set_text(text)
+        entry.set_hexpand(True)
+        entry.add_css_class("flat") # Removes the background/border to look clean in the list
+        entry.set_margin_start(12)
+        entry.set_margin_end(12)
+        entry.set_margin_top(8)
+        entry.set_margin_bottom(8)
+        
+        row.set_child(entry)
+        self.queue.append(row)
+
+    def add_item_from_input(self, widget):
         text = self.url_entry.get_text().strip()
         if not text:
             return
-
-        row = Gtk.ListBoxRow()
-        label = Gtk.Label(label=text, xalign=0)
-        label.set_margin_start(12)
-        label.set_margin_end(12)
-        label.set_margin_top(8)
-        label.set_margin_bottom(8)
-        row.set_child(label)
-
-        self.queue.append(row)
+        
+        self.add_item_to_queue(text)
         self.url_entry.set_text("")
         self.log_message(f"Added to queue: {text}")
+
+    def load_failed_file(self, widget):
+        try:
+            dialog = Gtk.FileDialog()
+            dialog.open(self, None, self.on_load_file_selected)
+        except Exception as e:
+            self.log_message(f"Failed to open file dialog: {e}")
+
+    def on_load_file_selected(self, dialog, result):
+        try:
+            file = dialog.open_finish(result)
+            if file:
+                path = file.get_path()
+                with open(path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                count = 0
+                for line in lines:
+                    line = line.strip()
+                    if line:
+                        self.add_item_to_queue(line)
+                        count += 1
+                        
+                self.log_message(f"Loaded {count} items from {path}")
+        except Exception as e:
+            self.log_message(f"File selection/reading error: {e}")
 
     def remove_selected(self, widget):
         selected_row = self.queue.get_selected_row()
         if selected_row:
-            child_label = selected_row.get_child()
-            text = child_label.get_label() if child_label else "Item"
+            child = selected_row.get_child()
+            # Because it's an Entry now, we use get_text() instead of get_label()
+            text = child.get_text() if isinstance(child, Gtk.Entry) else "Item"
             self.queue.remove(selected_row)
             self.log_message(f"Removed from queue: {text}")
 
@@ -477,8 +516,11 @@ class SpotDLWindow(Adw.ApplicationWindow):
             if row is None:
                 break
             child = row.get_child()
-            if child:
-                items.append(child.get_label())
+            # Read from the editable entry
+            if child and isinstance(child, Gtk.Entry):
+                item_text = child.get_text().strip()
+                if item_text:
+                    items.append(item_text)
             idx += 1
 
         if not items:
@@ -614,7 +656,17 @@ class SpotDLWindow(Adw.ApplicationWindow):
                 self.current_process = None
 
         if failed_songs and self.is_downloading:
-            failed_file_path = self.download_path / "failed_downloads.txt"
+            
+            # Smart Auto-Incrementing logic
+            base_name = "failed_downloads"
+            ext = ".txt"
+            failed_file_path = self.download_path / f"{base_name}{ext}"
+            
+            counter = 1
+            while failed_file_path.exists():
+                failed_file_path = self.download_path / f"{base_name} ({counter}){ext}"
+                counter += 1
+
             try:
                 with open(failed_file_path, "w", encoding="utf-8") as f:
                     f.write("\n".join(failed_songs) + "\n")
