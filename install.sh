@@ -25,12 +25,11 @@ else
     echo "Deno is already installed."
 fi
 
-# 3. Create Application Directory & Virtual Environment (with system-site-packages enabled)
+# 3. Create Application Directory & Virtual Environment
 INSTALL_DIR="$HOME/.local/share/spotdl-ng"
 echo "Setting up Python virtual environment at $INSTALL_DIR/venv..."
 mkdir -p "$INSTALL_DIR"
 
-# Copy icon.png if it exists in the current directory
 if [ -f "./icon.png" ]; then
     cp "./icon.png" "$INSTALL_DIR/icon.png"
     echo "Custom icon.png copied to $INSTALL_DIR/icon.png"
@@ -57,16 +56,16 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk, GLib, Gdk
 
-# Force application name for desktop shell / dock
 GLib.set_prgname("com.example.SpotDLNG")
 GLib.set_application_name("SpotDL-NG")
 
 FORMATS = ["mp3", "flac", "m4a", "opus", "ogg", "wav"]
 BITRATES = ["32k", "64k", "96k", "128k", "192k", "256k", "320k", "auto"]
+AUDIO_PROVIDERS = ["youtube-music", "youtube", "piped", "soundcloud", "bandcamp"]
+LYRICS_PROVIDERS = ["genius", "musixmatch", "azlyrics", "synced"]
 
 
 def check_internet_connection(host="8.8.8.8", port=53, timeout=3):
-    """Checks reachability via direct TCP socket connection to avoid HTTP/SSL issues."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(timeout)
@@ -83,16 +82,17 @@ class SpotDLWindow(Adw.ApplicationWindow):
         super().__init__(*args, **kwargs)
 
         self.set_title("SpotDL-NG")
-        self.set_default_size(500, 650)
+        self.set_default_size(520, 750)
 
         self.download_path = Path.home() / "Music"
         self.is_downloading = False
         self.download_thread = None
         self.current_process = None
 
+        self.audio_provider_switches = {}
+        self.lyrics_provider_switches = {}
+
         self.build_ui()
-        
-        # Check network connectivity at startup
         GLib.idle_add(self.check_launch_network)
 
     def check_launch_network(self):
@@ -115,7 +115,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         header = Adw.HeaderBar()
-        
         header_title = Adw.WindowTitle(
             title="SpotDL-NG",
             subtitle="Music downloader",
@@ -179,7 +178,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         queue_frame.set_vexpand(True)
 
         scroll = Gtk.ScrolledWindow()
-        scroll.set_min_content_height(230)
+        scroll.set_min_content_height(180)
 
         self.queue = Gtk.ListBox()
         self.queue.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -223,7 +222,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         bitrate_row = Adw.ComboRow()
         bitrate_row.set_title("Bitrate")
         bitrate_row.set_model(Gtk.StringList.new(BITRATES))
-        bitrate_row.set_selected(7)  # Default set to "auto"
+        bitrate_row.set_selected(7)
         self.bitrate_row = bitrate_row
         settings.add(bitrate_row)
 
@@ -254,6 +253,36 @@ class SpotDLWindow(Adw.ApplicationWindow):
         overwrite_row.set_selected(0)
         self.overwrite_row = overwrite_row
         settings.add(overwrite_row)
+
+        # Audio Providers Dropdown Expander
+        audio_expander = Adw.ExpanderRow()
+        audio_expander.set_title("Audio Providers")
+        audio_expander.set_subtitle("Configure audio source fallbacks")
+
+        for provider in AUDIO_PROVIDERS:
+            row = Adw.SwitchRow()
+            row.set_title(provider)
+            if provider == "youtube-music":
+                row.set_active(True)
+            self.audio_provider_switches[provider] = row
+            audio_expander.add_row(row)
+
+        settings.add(audio_expander)
+
+        # Lyrics Providers Dropdown Expander
+        lyrics_expander = Adw.ExpanderRow()
+        lyrics_expander.set_title("Lyrics Providers")
+        lyrics_expander.set_subtitle("Configure lyrics source fallbacks")
+
+        for provider in LYRICS_PROVIDERS:
+            row = Adw.SwitchRow()
+            row.set_title(provider)
+            if provider == "genius":
+                row.set_active(True)
+            self.lyrics_provider_switches[provider] = row
+            lyrics_expander.add_row(row)
+
+        settings.add(lyrics_expander)
 
         content.append(settings)
 
@@ -326,6 +355,10 @@ class SpotDLWindow(Adw.ApplicationWindow):
         scrolled_window.set_child(content)
         root.append(scrolled_window)
         self.set_content(root)
+
+    def get_selected_providers(self, provider_dict):
+        selected = [name for name, switch in provider_dict.items() if switch.get_active()]
+        return selected
 
     def log_message(self, text):
         def update():
@@ -463,8 +496,11 @@ class SpotDLWindow(Adw.ApplicationWindow):
         try:
             fmt = FORMATS[self.format_row.get_selected()]
             bitrate = BITRATES[self.bitrate_row.get_selected()]
+            selected_audio = self.get_selected_providers(self.audio_provider_switches)
+            selected_lyrics = self.get_selected_providers(self.lyrics_provider_switches)
             threads = int(self.threads_row.get_value())
             download_lyrics = self.lyrics_row.get_active()
+            generate_lrc = self.lrc_row.get_active()
         except Exception as e:
             self.log_message(f"Error reading configuration options: {e}")
             self.reset_ui_safe()
@@ -491,8 +527,16 @@ class SpotDLWindow(Adw.ApplicationWindow):
                 "--bitrate", bitrate,
                 "--threads", str(threads),
             ]
+
+            if selected_audio:
+                cmd.extend(["--audio-providers"] + selected_audio)
+            if selected_lyrics:
+                cmd.extend(["--lyrics-providers"] + selected_lyrics)
+
             if download_lyrics:
                 cmd.append("--lyrics")
+            if generate_lrc:
+                cmd.append("--generate-lrc")
 
             self.log_message(f"Running command: {' '.join(cmd)}")
 
@@ -596,7 +640,7 @@ if __name__ == "__main__":
     app.run(None)
 EOF
 
-# 5. Create Desktop Shortcut Entry (Filename matching Application ID)
+# 5. Create Desktop Shortcut Entry
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 DESKTOP_FILE="$DESKTOP_DIR/com.example.SpotDLNG.desktop"
