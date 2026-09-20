@@ -57,6 +57,10 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk, GLib, Gdk
 
+# Force application name for desktop shell / dock
+GLib.set_prgname("com.example.SpotDLNG")
+GLib.set_application_name("SpotDL-NG")
+
 FORMATS = ["mp3", "flac", "m4a", "opus", "ogg", "wav"]
 BITRATES = ["32k", "64k", "96k", "128k", "192k", "256k", "320k", "auto"]
 
@@ -580,7 +584,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
 class SpotDLApp(Adw.Application):
 
     def __init__(self):
-        super().__init__(application_id="com.example.SpotDL")
+        super().__init__(application_id="com.example.SpotDLNG")
 
     def do_activate(self):
         win = SpotDLWindow(application=self)
@@ -592,10 +596,10 @@ if __name__ == "__main__":
     app.run(None)
 EOF
 
-# 5. Create Desktop Shortcut Entry
+# 5. Create Desktop Shortcut Entry (Filename matching Application ID)
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
-DESKTOP_FILE="$DESKTOP_DIR/spotdl-ng.desktop"
+DESKTOP_FILE="$DESKTOP_DIR/com.example.SpotDLNG.desktop"
 
 ICON_PATH="$INSTALL_DIR/icon.png"
 if [ ! -f "$ICON_PATH" ]; then
@@ -613,6 +617,7 @@ Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;
 StartupNotify=true
+StartupWMClass=com.example.SpotDLNG
 EOF
 
 chmod +x "$DESKTOP_FILE"
