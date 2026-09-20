@@ -55,7 +55,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gtk, GLib
+from gi.repository import Adw, Gtk, GLib, Gdk
 
 FORMATS = ["mp3", "flac", "m4a", "opus", "ogg", "wav"]
 BITRATES = ["32k", "64k", "96k", "128k", "192k", "256k", "320k", "auto"]
@@ -219,7 +219,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         bitrate_row = Adw.ComboRow()
         bitrate_row.set_title("Bitrate")
         bitrate_row.set_model(Gtk.StringList.new(BITRATES))
-        bitrate_row.set_selected(4)
+        bitrate_row.set_selected(7)  # Default set to "auto"
         self.bitrate_row = bitrate_row
         settings.add(bitrate_row)
 
@@ -258,6 +258,20 @@ class SpotDLWindow(Adw.ApplicationWindow):
         content.append(self.status_label)
 
         self.overall_progress = Gtk.ProgressBar()
+        self.overall_progress.set_pulse_step(0.02)
+        
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(b"""
+            progressbar progress {
+                transition: none;
+            }
+        """)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        
         content.append(self.overall_progress)
 
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -428,8 +442,14 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.status_label.set_text("Downloading...")
         
         def set_indeterminate():
-            self.overall_progress.set_pulse_step(0.05)
-            GLib.timeout_add(80, lambda: self.overall_progress.pulse() if self.is_downloading else False)
+            def update_bar():
+                if not self.is_downloading:
+                    return False
+                self.overall_progress.pulse()
+                return True
+
+            GLib.timeout_add(40, update_bar)
+
         GLib.idle_add(set_indeterminate)
 
         self.download_thread = threading.Thread(target=self.run_spotdl_process, args=(items,))
