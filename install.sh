@@ -5,7 +5,7 @@ set -e
 echo "=== Starting SpotDL-NG All-in-One Installation ==="
 
 # 1. Install System Dependencies & Python GTK Bindings / Venv support
-echo "Installing system dependencies and Python venv..."
+echo "Installing system dependencies..."
 if command -v apt &> /dev/null; then
     sudo apt update
     sudo apt install -y ffmpeg python3-full python3-venv python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 curl
@@ -49,6 +49,8 @@ import threading
 import subprocess
 import platform
 import socket
+import signal
+import os
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -67,11 +69,10 @@ LYRICS_PROVIDERS = ["genius", "musixmatch", "azlyrics", "synced"]
 
 def check_internet_connection(host="8.8.8.8", port=53, timeout=3):
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect((host, port))
-        s.close()
-        return True
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect((host, port))
+            return True
     except OSError:
         return False
 
@@ -84,7 +85,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.set_title("SpotDL-NG")
         self.set_default_size(520, 750)
 
-        # Connect window close signal to clean up active subprocesses
         self.connect("close-request", self.on_close_request)
 
         self.download_path = Path.home() / "Music"
@@ -102,23 +102,26 @@ class SpotDLWindow(Adw.ApplicationWindow):
         if self.is_downloading:
             self.is_downloading = False
             self.log_message("Window closing. Terminating active downloads...")
-            
-            proc = self.current_process
-            if proc and proc.poll() is None:
-                try:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=1.0)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                except Exception as e:
-                    print(f"Error terminating process on exit: {e}")
-
+            self.kill_current_process()
         return False
+
+    def kill_current_process(self):
+        proc = self.current_process
+        if proc and proc.poll() is None:
+            try:
+                if platform.system() != "Windows":
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                else:
+                    proc.terminate()
+            except Exception as e:
+                print(f"Error terminating process: {e}")
 
     def check_launch_network(self):
         if not check_internet_connection():
-            self.show_network_dialog("Network Unavailable", "No active internet connection was detected on launch. Please check your network settings.")
+            self.show_network_dialog(
+                "Network Unavailable",
+                "No active internet connection was detected on launch. Please check your network settings."
+            )
 
     def show_network_dialog(self, title, message):
         def present_dialog():
@@ -168,14 +171,9 @@ class SpotDLWindow(Adw.ApplicationWindow):
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_vexpand(True)
         scrolled_window.set_hexpand(True)
-        scrolled_window.set_policy(
-            Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC
-        )
+        scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
-        content = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=12,
-        )
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         content.set_margin_start(20)
         content.set_margin_end(20)
         content.set_margin_top(20)
@@ -185,9 +183,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         title.add_css_class("title-2")
         content.append(title)
 
-        subtitle = Gtk.Label(
-            label="Paste a Spotify link or enter a search query.", xalign=0
-        )
+        subtitle = Gtk.Label(label="Paste a Spotify link or enter a search query.", xalign=0)
         subtitle.add_css_class("dim-label")
         content.append(subtitle)
 
@@ -309,9 +305,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
         overwrite_row = Adw.ComboRow()
         overwrite_row.set_title("Existing files")
-        overwrite_row.set_model(
-            Gtk.StringList.new(["Skip", "Overwrite", "Metadata only"])
-        )
+        overwrite_row.set_model(Gtk.StringList.new(["Skip", "Overwrite", "Metadata only"]))
         overwrite_row.set_selected(0)
         self.overwrite_row = overwrite_row
         settings.add(overwrite_row)
@@ -324,19 +318,15 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
         self.overall_progress = Gtk.ProgressBar()
         self.overall_progress.set_pulse_step(0.02)
-        
+
         css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            progressbar progress {
-                transition: none;
-            }
-        """)
+        css_provider.load_from_data(b"progressbar progress { transition: none; }")
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(),
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
-        
+
         content.append(self.overall_progress)
 
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -361,7 +351,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         content.append(buttons)
 
         expander = Gtk.Expander(label="Show log")
-        
+
         log_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         log_box.set_margin_top(8)
 
@@ -389,8 +379,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.set_content(root)
 
     def get_selected_providers(self, provider_dict):
-        selected = [name for name, switch in provider_dict.items() if switch.get_active()]
-        return selected
+        return [name for name, switch in provider_dict.items() if switch.get_active()]
 
     def log_message(self, text):
         def update():
@@ -414,15 +403,14 @@ class SpotDLWindow(Adw.ApplicationWindow):
         try:
             self.download_path.mkdir(parents=True, exist_ok=True)
             path_str = str(self.download_path)
-            
+
             if platform.system() == "Windows":
-                import os
                 os.startfile(path_str)
             elif platform.system() == "Darwin":
                 subprocess.Popen(["open", path_str])
             else:
                 subprocess.Popen(["xdg-open", path_str])
-            
+
             self.log_message(f"Opened target directory: {path_str}")
         except Exception as e:
             self.log_message(f"Failed to open directory: {e}")
@@ -482,14 +470,15 @@ class SpotDLWindow(Adw.ApplicationWindow):
             return
 
         items = []
-        row = self.queue.get_row_at_index(0)
         idx = 0
-        while row is not None:
+        while True:
+            row = self.queue.get_row_at_index(idx)
+            if row is None:
+                break
             child = row.get_child()
             if child:
                 items.append(child.get_label())
             idx += 1
-            row = self.queue.get_row_at_index(idx)
 
         if not items:
             self.log_message("Queue is empty. Add links or search queries first.")
@@ -506,39 +495,40 @@ class SpotDLWindow(Adw.ApplicationWindow):
             self.log_message(f"Error creating download directory: {e}")
             return
 
+        # Read config on the GTK main thread before starting background thread
+        config = {
+            "fmt": FORMATS[self.format_row.get_selected()],
+            "bitrate": BITRATES[self.bitrate_row.get_selected()],
+            "audio_providers": self.get_selected_providers(self.audio_provider_switches),
+            "lyrics_providers": self.get_selected_providers(self.lyrics_provider_switches),
+            "threads": int(self.threads_row.get_value()),
+            "download_lyrics": self.lyrics_row.get_active(),
+            "generate_lrc": self.lrc_row.get_active(),
+        }
+
         self.is_downloading = True
         self.download_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
         self.status_label.set_text("Downloading...")
-        
+
         def set_indeterminate():
             def update_bar():
                 if not self.is_downloading:
                     return False
                 self.overall_progress.pulse()
                 return True
-
             GLib.timeout_add(40, update_bar)
 
         GLib.idle_add(set_indeterminate)
 
-        self.download_thread = threading.Thread(target=self.run_spotdl_process, args=(items,))
+        self.download_thread = threading.Thread(
+            target=self.run_spotdl_process,
+            args=(items, config),
+            daemon=True
+        )
         self.download_thread.start()
 
-    def run_spotdl_process(self, items):
-        try:
-            fmt = FORMATS[self.format_row.get_selected()]
-            bitrate = BITRATES[self.bitrate_row.get_selected()]
-            selected_audio = self.get_selected_providers(self.audio_provider_switches)
-            selected_lyrics = self.get_selected_providers(self.lyrics_provider_switches)
-            threads = int(self.threads_row.get_value())
-            download_lyrics = self.lyrics_row.get_active()
-            generate_lrc = self.lrc_row.get_active()
-        except Exception as e:
-            self.log_message(f"Error reading configuration options: {e}")
-            self.reset_ui_safe()
-            return
-
+    def run_spotdl_process(self, items, config):
         spotdl_bin = str(Path(__file__).parent / "venv" / "bin" / "spotdl")
         failed_items = []
 
@@ -548,7 +538,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
             if not check_internet_connection():
                 self.log_message("Network dropped during download session.")
-                self.show_network_dialog("Network Lost", "Internet connection was lost during processing. The download batch has been stopped.")
+                self.show_network_dialog("Network Lost", "Internet connection was lost. Batch stopped.")
                 failed_items.append(item)
                 break
 
@@ -557,32 +547,35 @@ class SpotDLWindow(Adw.ApplicationWindow):
                 "download",
                 item,
                 "--output", str(self.download_path),
-                "--format", fmt,
-                "--bitrate", bitrate,
-                "--threads", str(threads),
+                "--format", config["fmt"],
+                "--bitrate", config["bitrate"],
+                "--threads", str(config["threads"]),
             ]
 
-            if selected_audio:
-                cmd.extend(["--audio"] + selected_audio)
-            if selected_lyrics:
-                cmd.extend(["--lyrics"] + selected_lyrics)
+            if config["audio_providers"]:
+                cmd.extend(["--audio"] + config["audio_providers"])
 
-            if download_lyrics:
-                cmd.append("--lyrics")
-            if generate_lrc:
+            if config["lyrics_providers"]:
+                cmd.extend(["--lyrics"] + config["lyrics_providers"])
+
+            if config["generate_lrc"]:
                 cmd.append("--generate-lrc")
 
             self.log_message(f"Running command: {' '.join(cmd)}")
 
             item_failed = False
             try:
-                self.current_process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1
-                )
+                # Spawn in new process group for clean subtree termination
+                kwargs = {
+                    "stdout": subprocess.PIPE,
+                    "stderr": subprocess.STDOUT,
+                    "text": True,
+                    "bufsize": 1,
+                }
+                if platform.system() != "Windows":
+                    kwargs["start_new_session"] = True
+
+                self.current_process = subprocess.Popen(cmd, **kwargs)
 
                 if self.current_process.stdout:
                     for line in self.current_process.stdout:
@@ -595,7 +588,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
                                 item_failed = True
 
                 self.current_process.wait()
-                
+
                 if (self.current_process.returncode != 0 or item_failed) and self.is_downloading:
                     self.log_message(f"Warning: Item failed/encountered LookupError: {item}")
                     failed_items.append(item)
@@ -619,11 +612,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         def present_dialog():
             try:
                 body_text = "The following items failed or encountered an error:\n\n" + "\n".join(f"• {item}" for item in failed_items)
-                dialog = Adw.MessageDialog.new(
-                    self,
-                    "Some Downloads Failed",
-                    body_text
-                )
+                dialog = Adw.MessageDialog.new(self, "Some Downloads Failed", body_text)
                 dialog.add_response("ok", "OK")
                 dialog.connect("response", lambda d, response: d.destroy())
                 dialog.present()
@@ -647,15 +636,7 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.is_downloading = False
         self.status_label.set_text("Stopping...")
         self.log_message("Stop requested by user. Terminating process...")
-        
-        proc = self.current_process
-        if proc:
-            try:
-                proc.terminate()
-                GLib.timeout_add(2000, lambda: proc.kill() if proc.poll() is None else False)
-            except Exception as e:
-                self.log_message(f"Error terminating process: {e}")
-
+        self.kill_current_process()
         self.stop_button.set_sensitive(False)
 
 
@@ -689,7 +670,7 @@ cat << EOF > "$DESKTOP_FILE"
 [Desktop Entry]
 Name=SpotDL-NG
 Comment=Music downloader powered by spotdl and GTK4
-Exec=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/spotdl.py
+Exec=env PATH="$HOME/.deno/bin:\$PATH" "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/spotdl.py"
 Icon=$ICON_PATH
 Terminal=false
 Type=Application
@@ -712,6 +693,7 @@ LAUNCHER="$BIN_DIR/spotdl-ng"
 echo "Creating global command 'spotdl-ng' at $LAUNCHER..."
 cat << EOF > "$LAUNCHER"
 #!/bin/bash
+export PATH="\$HOME/.deno/bin:\$PATH"
 exec "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/spotdl.py" "\$@"
 EOF
 
