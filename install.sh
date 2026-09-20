@@ -495,7 +495,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
             self.log_message(f"Error creating download directory: {e}")
             return
 
-        # Read config on the GTK main thread before starting background thread
         config = {
             "fmt": FORMATS[self.format_row.get_selected()],
             "bitrate": BITRATES[self.bitrate_row.get_selected()],
@@ -565,7 +564,6 @@ class SpotDLWindow(Adw.ApplicationWindow):
 
             item_failed = False
             try:
-                # Spawn in new process group for clean subtree termination
                 kwargs = {
                     "stdout": subprocess.PIPE,
                     "stderr": subprocess.STDOUT,
@@ -604,6 +602,14 @@ class SpotDLWindow(Adw.ApplicationWindow):
                 self.current_process = None
 
         if failed_items and self.is_downloading:
+            failed_file_path = self.download_path / "failed_downloads.txt"
+            try:
+                with open(failed_file_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(failed_items) + "\n")
+                self.log_message(f"Saved failed downloads list to {failed_file_path}")
+            except Exception as e:
+                self.log_message(f"Failed to write log file: {e}")
+
             self.show_failed_dialog(failed_items)
 
         self.reset_ui_safe()
