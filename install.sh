@@ -226,6 +226,20 @@ class SpotDLWindow(Adw.ApplicationWindow):
         self.bitrate_row = bitrate_row
         settings.add(bitrate_row)
 
+        # Audio Providers Dropdown Expander (Above Threads)
+        audio_expander = Adw.ExpanderRow()
+        audio_expander.set_title("Audio Providers")
+
+        for provider in AUDIO_PROVIDERS:
+            row = Adw.SwitchRow()
+            row.set_title(provider)
+            if provider == "youtube-music":
+                row.set_active(True)
+            self.audio_provider_switches[provider] = row
+            audio_expander.add_row(row)
+
+        settings.add(audio_expander)
+
         threads_row = Adw.SpinRow.new_with_range(1, 32, 1)
         threads_row.set_title("Threads")
         threads_row.set_value(10)
@@ -239,40 +253,14 @@ class SpotDLWindow(Adw.ApplicationWindow):
         settings.add(lyrics_row)
 
         lrc_row = Adw.SwitchRow()
-        lrc_row.set_title("Generate LRC")
-        lrc_row.set_subtitle("Generate lyric files when available.")
+        lrc_row.set_title("Generate lyric files")
         lrc_row.set_active(True)
         self.lrc_row = lrc_row
         settings.add(lrc_row)
 
-        overwrite_row = Adw.ComboRow()
-        overwrite_row.set_title("Existing files")
-        overwrite_row.set_model(
-            Gtk.StringList.new(["Skip", "Overwrite", "Metadata only"])
-        )
-        overwrite_row.set_selected(0)
-        self.overwrite_row = overwrite_row
-        settings.add(overwrite_row)
-
-        # Audio Providers Dropdown Expander
-        audio_expander = Adw.ExpanderRow()
-        audio_expander.set_title("Audio Providers")
-        audio_expander.set_subtitle("Configure audio source fallbacks")
-
-        for provider in AUDIO_PROVIDERS:
-            row = Adw.SwitchRow()
-            row.set_title(provider)
-            if provider == "youtube-music":
-                row.set_active(True)
-            self.audio_provider_switches[provider] = row
-            audio_expander.add_row(row)
-
-        settings.add(audio_expander)
-
-        # Lyrics Providers Dropdown Expander
+        # Lyrics Providers Dropdown Expander (Below Generate Lyric Files)
         lyrics_expander = Adw.ExpanderRow()
         lyrics_expander.set_title("Lyrics Providers")
-        lyrics_expander.set_subtitle("Configure lyrics source fallbacks")
 
         for provider in LYRICS_PROVIDERS:
             row = Adw.SwitchRow()
@@ -283,6 +271,15 @@ class SpotDLWindow(Adw.ApplicationWindow):
             lyrics_expander.add_row(row)
 
         settings.add(lyrics_expander)
+
+        overwrite_row = Adw.ComboRow()
+        overwrite_row.set_title("Existing files")
+        overwrite_row.set_model(
+            Gtk.StringList.new(["Skip", "Overwrite", "Metadata only"])
+        )
+        overwrite_row.set_selected(0)
+        self.overwrite_row = overwrite_row
+        settings.add(overwrite_row)
 
         content.append(settings)
 
